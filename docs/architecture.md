@@ -1,29 +1,49 @@
-# Payment Backend Architecture
+# Архитектура платежного бэкенда
 
-This is a compact backend proposal for a YooKassa-based payment layer that could be adapted for
-+7 Pay or a similar fintech MVP.
+Это компактное техническое предложение для платежного слоя на YooKassa, который можно
+адаптировать под +7 Pay или похожий fintech-MVP.
 
-## Components
+## Компоненты
 
-- `PaymentService` owns business transactions and database writes.
-- `YooKassaClient` isolates provider HTTP calls and idempotency headers.
-- `payments` stores order/payment state, provider ids, amounts, and confirmation URLs.
-- `payment_methods` stores only provider tokens and safe card metadata, not card numbers or CVV.
-- `webhook_events` stores a stable payload hash to ignore duplicate provider notifications.
-- `refunds` tracks every refund as a separate operation with its own idempotency key.
+- `PaymentService` отвечает за бизнес-транзакции и записи в БД.
+- `YooKassaClient` изолирует HTTP-вызовы к провайдеру и работу с заголовками идемпотентности.
+- `payments` хранит состояние заказа/платежа, идентификатор провайдера, сумму и ссылку на подтверждение.
+- `payment_methods` хранит только токен провайдера и безопасные карточные метаданные, без номера карты и CVV.
+- `webhook_events` хранит стабильный хеш полезной нагрузки, чтобы игнорировать дубли уведомлений.
+- `refunds` фиксирует каждый возврат как отдельную операцию со своим ключом идемпотентности.
+- `audit_events` записывает чувствительные операции в маскированном виде для последующего разбора.
 
-## Main Flow
+## Основной сценарий
 
-1. Client requests `POST /api/payments`.
-2. Backend creates a local pending payment and generates an idempotency key.
-3. Backend calls YooKassa `/v3/payments`.
-4. Backend saves `provider_payment_id`, status, and confirmation URL.
-5. YooKassa sends webhook events.
-6. Backend deduplicates the webhook, fetches actual payment state from YooKassa, and updates the order.
-7. If `payment_method.saved=true`, backend stores only `payment_method.id` and safe card metadata.
+1. Клиент отправляет `POST /api/payments`.
+2. Бэкенд создает локальный платеж в статусе `pending` и использует ключ идемпотентности.
+3. Бэкенд вызывает YooKassa `/v3/payments`.
+4. Бэкенд сохраняет `provider_payment_id`, статус и `confirmation_url`.
+5. YooKassa отправляет webhook-события.
+6. Бэкенд убирает дубли вебхуков, запрашивает актуальное состояние платежа в YooKassa и обновляет заказ.
+7. Если `payment_method.saved=true`, бэкенд сохраняет только `payment_method.id` и безопасные метаданные карты.
 
-## Data Safety
+## Безопасность данных
 
-The project intentionally avoids storing PAN, CVV/CVC, raw authorization headers, or provider secret
-keys in the database. Secrets are expected in environment variables or a proper secret manager.
+Проект специально не хранит PAN, CVV/CVC, полные payload платежных форм, сырые
+заголовки авторизации или секретные ключи провайдера в базе. Секреты должны лежать
+в переменных окружения или в нормальном хранилище секретов.
 
+## Идемпотентность
+
+Публичный API принимает заголовок `Idempotence-Key` для создания платежа, автосписания,
+холдирования/списания, отмены и возвратов. Если один и тот же ключ создания платежа
+или возврата используется повторно, приложение возвращает уже созданную локальную
+сущность вместо повторной операции у провайдера.
+
+## Машина состояний
+
+В проекте есть базовые проверки переходов:
+
+- `capture` разрешен только для платежей в статусе `waiting_for_capture`.
+- `cancel` разрешен для `pending` и `waiting_for_capture`.
+- `refund` разрешен только после перехода платежа в `succeeded` или refund-related состояние.
+
+В продакшен-версии я бы вынес эти правила в явную таблицу переходов и отдельно
+закрыл провайдерские пограничные сценарии: частичные списания, частичные возвраты,
+оспаривания платежей и спорные операции.

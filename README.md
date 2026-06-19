@@ -1,43 +1,51 @@
-# +7 Pay YooKassa Payment Backend Proposal
+# Техническое предложение: платежный бэкенд на YooKassa
 
-FastAPI demo/proposal for a payment backend that shows how I would structure a YooKassa
-integration before refactoring a fintech MVP.
+[![CI](https://github.com/alberezov-del/plus7pay-yookassa-payment-proposal/actions/workflows/ci.yml/badge.svg)](https://github.com/alberezov-del/plus7pay-yookassa-payment-proposal/actions/workflows/ci.yml)
 
-This repository is a technical proposal and portfolio demo. It does not claim affiliation with
-+7 Pay and does not contain production secrets.
+Это небольшой FastAPI-проект, который показывает, как я бы выделил платежный модуль
+перед рефакторингом fintech-MVP: платежи, привязка карты, автосписания, холдирование,
+возвраты, вебхуки и безопасное хранение данных.
 
-## What This Demonstrates
+Репозиторий сделан как техническое предложение и портфолио-демо. Он не заявляет
+о связи с +7 Pay и не содержит продакшен-секретов.
 
-- Payment creation through YooKassa-style `/v3/payments`.
-- Provider idempotency via `Idempotence-Key`.
-- Two-stage payments: `capture=false`, then `capture` or `cancel`.
-- Saved payment methods via `save_payment_method` and later recurring charges by `payment_method_id`.
-- Webhook endpoint with duplicate protection and provider status verification.
-- Refunds as separate entities through `/v3/refunds`.
-- Safe persistence: no card numbers, no CVV, no raw provider secrets in the database.
-- A database layout that separates payments, saved payment methods, webhooks, and refunds.
+## Что показывает проект
 
-## Why This Fits A +7 Pay-Style Task
+- Создание платежа в стиле YooKassa через `/v3/payments`.
+- Идемпотентность на стороне провайдера и приложения через заголовок `Idempotence-Key`.
+- Двухстадийные платежи: `capture=false`, затем `capture` или `cancel`.
+- Сохранение платежного метода через `save_payment_method` и последующие автосписания по `payment_method_id`.
+- Webhook-эндпоинт с защитой от дублей и сверкой актуального статуса через API провайдера.
+- Возвраты как отдельные операции через `/v3/refunds`.
+- Проверки платежной машины состояний для `capture`, `cancel` и `refund`.
+- Маскированный журнал аудита для чувствительных платежных операций.
+- Безопасное хранение: без номеров карт, CVV и сырых секретов провайдера в базе.
+- Разделение таблиц для платежей, сохраненных платежных методов, вебхуков, возвратов и аудита.
 
-For a fintech MVP with app logic, bank/provider API integration, and database refactoring, I would
-start by isolating the payment module from the rest of the product:
+## Почему это подходит под задачу в стиле +7 Pay
 
-- `app/yookassa_client.py` contains provider HTTP calls.
-- `app/services.py` contains payment business logic and transactional state changes.
-- `app/models.py` contains the proposed payment tables.
-- `app/main.py` exposes a small API surface for payments, recurring payments, holds, refunds, and webhooks.
-- `docs/security-checklist.md` lists security assumptions for sensitive data.
+Если в fintech-MVP нужно привести в порядок логику приложения, API банка/провайдера
+и структуру БД, я бы начал с изоляции платежного модуля от остального продукта:
 
-The goal is to keep provider-specific logic replaceable. If the project later moves from YooKassa
-to a bank API, most changes should stay inside the provider client and mapping layer.
+- `app/yookassa_client.py` отвечает за HTTP-вызовы к провайдеру.
+- `app/services.py` содержит бизнес-логику платежей и транзакционные изменения состояния.
+- `app/models.py` описывает предлагаемые таблицы платежного контура.
+- `app/main.py` открывает API для платежей, автосписаний, холдов, возвратов и вебхуков.
+- `docs/security-checklist.md` фиксирует базовые правила работы с чувствительными данными.
+- `.github/workflows/ci.yml` запускает линтер и тесты в GitHub Actions.
 
-## API Surface
+Главная идея: провайдерская логика должна быть заменяемой. Если позже проект уйдет
+с YooKassa на API банка, основная часть изменений должна остаться внутри клиента
+провайдера и слоя сопоставления статусов/ответов.
+
+## API
 
 ```text
 POST /api/payments
 POST /api/payments/recurring
 GET  /api/payments/{payment_id}
 GET  /api/payments/by-order/{order_id}
+GET  /api/users/{user_id}/payment-methods
 POST /api/payments/{payment_id}/capture
 POST /api/payments/{payment_id}/cancel
 POST /api/payments/{payment_id}/refunds
@@ -45,7 +53,7 @@ POST /api/webhooks/yookassa
 GET  /health
 ```
 
-## Local Run
+## Локальный запуск
 
 ```bash
 python3 -m venv .venv
@@ -55,56 +63,62 @@ cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
-Open:
+После запуска Swagger будет доступен здесь:
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-## Tests
+## Проверки
 
-Tests use a fake YooKassa client, so no real YooKassa credentials are required.
+Тесты используют тестовый клиент YooKassa, поэтому реальные ключи YooKassa для проверки не нужны.
 
 ```bash
 python -m pytest -q
+python -m ruff check .
 ```
 
-## Example Request
+## Пример запроса
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/payments \
   -H "Content-Type: application/json" \
+  -H "Idempotence-Key: payment:order-100:attempt-1" \
   -d '{
     "order_id": "order-100",
     "user_id": "user-42",
     "amount": {"value": "990.00", "currency": "RUB"},
     "capture": false,
     "save_payment_method": true,
-    "description": "Demo two-stage payment"
+    "description": "Двухстадийный тестовый платеж"
   }'
 ```
 
-## Proposed Tables
+## Предлагаемые таблицы
 
-- `payments`: order id, user id, amount, status, provider payment id, idempotency key.
-- `payment_methods`: user id, provider payment method id, safe card metadata such as last4/brand.
-- `webhook_events`: event type, provider object id, stable payload hash, processed flag.
-- `refunds`: linked payment id, provider refund id, amount, status, idempotency key.
+- `payments`: заказ, пользователь, сумма, статус, идентификатор платежа у провайдера, ключ идемпотентности.
+- `payment_methods`: пользователь, идентификатор платежного метода у провайдера, безопасные карточные метаданные вроде `last4` и `brand`.
+- `webhook_events`: тип события, идентификатор объекта у провайдера, стабильный хеш полезной нагрузки, флаг обработки.
+- `refunds`: связанный платеж, идентификатор возврата у провайдера, сумма, статус, ключ идемпотентности.
+- `audit_events`: действие, сущность, инициатор, маскированные JSON-детали.
 
-## Production Notes
+## Документация
 
-Before production use, I would add:
+- [Архитектура](docs/architecture.md)
+- [Чеклист безопасности](docs/security-checklist.md)
+- [Примеры API](docs/api-examples.md)
 
-- Alembic migrations.
-- Structured audit logs for refunds/cancellations.
-- Strong webhook source verification according to the provider contract.
-- Full observability: metrics for failed payments, duplicate webhooks, capture/cancel/refund errors.
-- Role-based admin access for refund and payment-method operations.
-- More explicit state machine validation for allowed payment transitions.
+## Что я бы добавил перед продакшеном
 
-## References
+- Alembic-миграции.
+- Проверку источника вебхуков по правилам конкретного провайдера.
+- Наблюдаемость: метрики по неуспешным платежам, дублям вебхуков, ошибкам `capture/cancel/refund`.
+- Ролевой доступ к админским операциям: возвраты, удаление платежных методов, ручные сверки.
+- Более строгую машину состояний для разрешенных переходов платежа.
+- Отдельную обработку частичных списаний, частичных возвратов и спорных платежных операций.
 
-- YooKassa API reference: https://yookassa.ru/developers/api
-- Saving payment method during payment: https://yookassa.ru/developers/payment-acceptance/scenario-extensions/recurring-payments/save-payment-method/save-during-payment
-- Recurring payments with saved payment method: https://yookassa.ru/developers/payment-acceptance/integration-scenarios/widget/additional-settings/recurring-payments
+## Источники
 
+- API YooKassa: https://yookassa.ru/developers/api
+- Сохранение платежного метода во время платежа: https://yookassa.ru/developers/payment-acceptance/scenario-extensions/recurring-payments/save-payment-method/save-during-payment
+- Рекуррентные платежи с сохраненным платежным методом: https://yookassa.ru/developers/payment-acceptance/integration-scenarios/widget/additional-settings/recurring-payments

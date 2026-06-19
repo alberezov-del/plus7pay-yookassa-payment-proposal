@@ -1,13 +1,14 @@
-# Security Checklist
+# Чеклист безопасности
 
-- Do not store card number, CVV/CVC, or full payment form payloads.
-- Store only provider identifiers: `provider_payment_id`, `payment_method.id`, refund ids.
-- Use a unique `Idempotence-Key` for every payment, capture, cancel, recurring charge, and refund.
-- Treat webhooks as at-least-once delivery: deduplicate and verify current status via provider API.
-- Keep all order updates inside database transactions.
-- Put provider keys in environment variables or a secret manager, never in source control.
-- Mask authorization headers, secrets, card fields, and CVV-like keys in logs.
-- Split operational tables: `payments`, `payment_methods`, `webhook_events`, `refunds`.
-- Add audit logging for admin/user-triggered refunds and payment method deletion in production.
-- Add provider webhook source verification according to the production gateway contract.
-
+- Не хранить номер карты, CVV/CVC и полные payload платежных форм.
+- Хранить только идентификаторы провайдера: `provider_payment_id`, `payment_method.id`, `refund_id`.
+- Использовать уникальный `Idempotence-Key` для каждого платежа, списания, отмены, автосписания и возврата.
+- Считать вебхуки доставкой "как минимум один раз": убирать дубли и сверять текущий статус через API провайдера.
+- Обновлять заказ и платежные сущности внутри транзакций БД.
+- Отклонять недопустимые переходы состояния, например возврат до статуса `succeeded`.
+- Вести маскированный журнал аудита для создания платежа, `capture`, `cancel`, `refund` и изменений статуса через webhook.
+- Хранить ключи провайдера в переменных окружения или secret manager, а не в исходном коде.
+- Маскировать заголовки авторизации, секреты, карточные поля и CVV-подобные ключи в логах.
+- Разделять операционные таблицы: `payments`, `payment_methods`, `webhook_events`, `refunds`, `audit_events`.
+- В продакшене добавить журнал аудита для возвратов и удаления платежных методов, запущенных админом или пользователем.
+- В продакшене добавить проверку источника webhook по контракту конкретного платежного шлюза.

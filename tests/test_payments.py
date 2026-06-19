@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from decimal import Decimal
-
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -72,7 +70,7 @@ def test_create_payment_with_idempotence_and_saved_method(tmp_path):
             "amount": {"value": "990.00", "currency": "RUB"},
             "capture": False,
             "save_payment_method": True,
-            "description": "Test order",
+            "description": "Тестовый заказ",
         },
     )
 
@@ -83,6 +81,32 @@ def test_create_payment_with_idempotence_and_saved_method(tmp_path):
     assert body["status"] == "waiting_for_capture"
     assert body["payment_method_id"] == "pm_saved_123"
     assert "pay_1" in body["confirmation_url"]
+
+    methods = client.get("/api/users/user-1/payment-methods")
+    assert methods.status_code == 200
+    assert methods.json()[0]["provider_payment_method_id"] == "pm_saved_123"
+    assert methods.json()[0]["card_last4"] == "1111"
+
+
+def test_create_payment_reuses_client_idempotence_key(tmp_path):
+    client = make_client(tmp_path)
+    headers = {"Idempotence-Key": "payment:order-100:fixed"}
+    payload = {
+        "order_id": "order-100",
+        "user_id": "user-1",
+        "amount": {"value": "990.00", "currency": "RUB"},
+        "capture": False,
+        "save_payment_method": True,
+        "description": "Тестовый заказ",
+    }
+
+    first = client.post("/api/payments", json=payload, headers=headers)
+    second = client.post("/api/payments", json=payload, headers=headers)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["id"] == second.json()["id"]
+    assert first.json()["provider_payment_id"] == second.json()["provider_payment_id"]
 
 
 def test_webhook_is_idempotent_and_verifies_actual_status(tmp_path):
@@ -117,13 +141,70 @@ def test_refund_uses_separate_refund_entity(tmp_path):
             "amount": {"value": "500.00", "currency": "RUB"},
         },
     ).json()
+    client.post("/api/webhooks/yookassa", json={"event": "payment.succeeded", "object": {"id": "pay_1"}})
 
     response = client.post(
         f"/api/payments/{created['id']}/refunds",
-        json={"amount": {"value": str(Decimal("100.00")), "currency": "RUB"}, "reason": "partial refund"},
+        headers={"Idempotence-Key": "refund:order-102:fixed"},
+        json={"amount": {"value": "100.00", "currency": "RUB"}, "reason": "Частичный возврат"},
+    )
+    repeated = client.post(
+        f"/api/payments/{created['id']}/refunds",
+        headers={"Idempotence-Key": "refund:order-102:fixed"},
+        json={"amount": {"value": "100.00", "currency": "RUB"}, "reason": "Частичный возврат"},
     )
 
     assert response.status_code == 201
     assert response.json()["provider_refund_id"] == "refund_1"
     assert response.json()["status"] == "succeeded"
+    assert repeated.status_code == 201
+    assert repeated.json()["id"] == response.json()["id"]
 
+
+def test_refund_is_rejected_before_successful_payment(tmp_path):
+    client = make_client(tmp_path)
+    created = client.post(
+        "/api/payments",
+        json={
+            "order_id": "order-103",
+            "user_id": "user-2",
+            "amount": {"value": "500.00", "currency": "RUB"},
+        },
+    ).json()
+
+    response = client.post(
+        f"/api/payments/{created['id']}/refunds",
+        json={"amount": {"value": "100.00", "currency": "RUB"}, "reason": "Слишком ранний возврат"},
+    )
+
+    assert response.status_code == 409
+    assert "Нельзя выполнить действие 'refund'" in response.json()["detail"]
+
+
+def test_capture_requires_waiting_for_capture_status(tmp_path):
+    client = make_client(tmp_path)
+    pending = client.post(
+        "/api/payments",
+        json={
+            "order_id": "order-104",
+            "user_id": "user-2",
+            "amount": {"value": "500.00", "currency": "RUB"},
+            "capture": True,
+        },
+    ).json()
+    held = client.post(
+        "/api/payments",
+        json={
+            "order_id": "order-105",
+            "user_id": "user-2",
+            "amount": {"value": "500.00", "currency": "RUB"},
+            "capture": False,
+        },
+    ).json()
+
+    rejected = client.post(f"/api/payments/{pending['id']}/capture")
+    captured = client.post(f"/api/payments/{held['id']}/capture")
+
+    assert rejected.status_code == 409
+    assert captured.status_code == 200
+    assert captured.json()["status"] == "succeeded"

@@ -95,3 +95,15 @@ class WebhookEvent(Base):
     payload_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     processed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    action: Mapped[str] = mapped_column(String(80), index=True)
+    entity_type: Mapped[str] = mapped_column(String(40), index=True)
+    entity_id: Mapped[str] = mapped_column(String(96), index=True)
+    actor_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    details_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

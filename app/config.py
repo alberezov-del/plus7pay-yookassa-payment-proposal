@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "+7 Pay YooKassa Payment Proposal"
+    app_name: str = "Техническое предложение: платежный бэкенд на YooKassa"
     database_url: str = "sqlite:///./payments.sqlite3"
     yookassa_shop_id: str = Field(default="test_shop_id", repr=False)
     yookassa_secret_key: str = Field(default="test_secret_key", repr=False)
@@ -15,4 +15,3 @@ class Settings(BaseSettings):
 
 def get_settings() -> Settings:
     return Settings()
-

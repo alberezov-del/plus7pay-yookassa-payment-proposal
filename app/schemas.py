@@ -13,7 +13,7 @@ class PaymentCreate(BaseModel):
     order_id: str = Field(min_length=1, max_length=64)
     user_id: str = Field(min_length=1, max_length=64)
     amount: Money
-    description: str = Field(default="Order payment", max_length=128)
+    description: str = Field(default="Оплата заказа", max_length=128)
     capture: bool = True
     save_payment_method: bool = False
 
@@ -23,12 +23,12 @@ class RecurringPaymentCreate(BaseModel):
     user_id: str = Field(min_length=1, max_length=64)
     payment_method_id: str = Field(min_length=1, max_length=96)
     amount: Money
-    description: str = Field(default="Recurring charge", max_length=128)
+    description: str = Field(default="Автосписание по сохраненному платежному методу", max_length=128)
 
 
 class RefundCreate(BaseModel):
     amount: Money
-    reason: str = Field(default="Customer refund", max_length=128)
+    reason: str = Field(default="Возврат клиенту", max_length=128)
 
 
 class PaymentOut(BaseModel):
@@ -43,6 +43,19 @@ class PaymentOut(BaseModel):
     save_payment_method: bool
     payment_method_id: str | None
     confirmation_url: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class PaymentMethodOut(BaseModel):
+    id: int
+    user_id: str
+    provider_payment_method_id: str
+    payment_type: str | None
+    card_last4: str | None
+    card_brand: str | None
+    saved: bool
+    active: bool
 
     model_config = {"from_attributes": True}
 
@@ -71,4 +84,3 @@ class ProviderPayment(BaseModel):
     paid: bool | None = None
     confirmation: dict[str, Any] | None = None
     payment_method: dict[str, Any] | None = None
-
